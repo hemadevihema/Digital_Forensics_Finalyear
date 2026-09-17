@@ -6,6 +6,8 @@ import ReactFlow, {
   useNodesState,
   useEdgesState,
   MarkerType,
+  Handle,
+  Position,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
@@ -21,8 +23,8 @@ function getLayoutedElements(nodes, edges, direction = 'TB') {
 
   dagreGraph.setGraph({
     rankdir: direction,
-    ranksep: isHorizontal ? 80 : 60,
-    nodesep: isHorizontal ? 40 : 45,
+    ranksep: isHorizontal ? 90 : 70,
+    nodesep: isHorizontal ? 50 : 50,
   });
 
   nodes.forEach((node) => {
@@ -39,8 +41,8 @@ function getLayoutedElements(nodes, edges, direction = 'TB') {
     const nodeWithPosition = dagreGraph.node(node.id) || { x: 0, y: 0 };
     return {
       ...node,
-      targetPosition: isHorizontal ? 'left' : 'top',
-      sourcePosition: isHorizontal ? 'right' : 'bottom',
+      targetPosition: isHorizontal ? Position.Left : Position.Top,
+      sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
       position: {
         x: nodeWithPosition.x - NODE_WIDTH / 2,
         y: nodeWithPosition.y - NODE_HEIGHT / 2,
@@ -51,8 +53,8 @@ function getLayoutedElements(nodes, edges, direction = 'TB') {
   return { layoutedNodes, layoutedEdges: edges };
 }
 
-// Custom Node Renderer
-function ForensicNode({ data, selected }) {
+// Custom Node Renderer with ReactFlow Handles
+function ForensicNode({ data, selected, targetPosition = Position.Top, sourcePosition = Position.Bottom }) {
   const isMalicious = data.is_malicious;
   const isCritical = data.risk_level === 'CRITICAL';
   const nodeType = data.type || 'NODE';
@@ -71,25 +73,28 @@ function ForensicNode({ data, selected }) {
     ? 'rgba(245, 158, 11, 0.8)'
     : selected
     ? '#6366f1'
-    : 'rgba(255, 255, 255, 0.15)';
+    : 'rgba(255, 255, 255, 0.18)';
 
   const bgColor = isCritical
-    ? 'rgba(45, 15, 20, 0.9)'
+    ? 'rgba(45, 15, 20, 0.95)'
     : isMalicious
-    ? 'rgba(45, 30, 15, 0.9)'
-    : 'rgba(20, 24, 38, 0.92)';
+    ? 'rgba(45, 30, 15, 0.95)'
+    : 'rgba(20, 24, 38, 0.95)';
 
   const boxShadow = isCritical
-    ? '0 0 15px rgba(239, 68, 68, 0.4)'
+    ? '0 0 16px rgba(239, 68, 68, 0.5)'
     : isMalicious
-    ? '0 0 12px rgba(245, 158, 11, 0.3)'
+    ? '0 0 14px rgba(245, 158, 11, 0.4)'
     : selected
-    ? '0 0 12px rgba(99, 102, 241, 0.4)'
-    : '0 4px 12px rgba(0, 0, 0, 0.3)';
+    ? '0 0 14px rgba(99, 102, 241, 0.5)'
+    : '0 4px 12px rgba(0, 0, 0, 0.35)';
+
+  const handleColor = isCritical ? '#ef4444' : isMalicious ? '#f59e0b' : '#38bdf8';
 
   return (
     <div
       style={{
+        position: 'relative',
         width: `${NODE_WIDTH}px`,
         padding: '10px 12px',
         borderRadius: '8px',
@@ -103,6 +108,19 @@ function ForensicNode({ data, selected }) {
         transition: 'all 0.2s ease',
       }}
     >
+      {/* Target Handle: incoming flow lines */}
+      <Handle
+        type="target"
+        position={targetPosition || Position.Top}
+        style={{
+          background: handleColor,
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          border: '2px solid #0f172a',
+        }}
+      />
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
         <span
           style={{
@@ -146,6 +164,19 @@ function ForensicNode({ data, selected }) {
       >
         {data.label}
       </div>
+
+      {/* Source Handle: outgoing flow lines */}
+      <Handle
+        type="source"
+        position={sourcePosition || Position.Bottom}
+        style={{
+          background: handleColor,
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          border: '2px solid #0f172a',
+        }}
+      />
     </div>
   );
 }
@@ -192,31 +223,40 @@ export default function AttackGraphView({ requestId }) {
           position: { x: 0, y: 0 },
         }));
 
-        // Convert API edges to React Flow edges with causal styling
+        // Convert API edges to React Flow edges with distinct flow line styling
         const rfEdges = (data.edges || []).map((e) => {
           const isThreatEdge =
             e.relation === 'concludes' ||
-            e.label.includes('POISONED') ||
-            e.label.includes('ATTRIBUTES');
+            (e.label && (e.label.includes('POISONED') || e.label.includes('ATTRIBUTES')));
+          const isDataFlow = e.relation === 'data_flow' || e.relation === 'invokes';
+          const isOriginates = e.relation === 'originates';
+          const isMerges = e.relation === 'merges';
+
+          let strokeColor = '#94a3b8'; // Slate default
+          if (isThreatEdge) strokeColor = '#ef4444'; // Bright Red
+          else if (isDataFlow) strokeColor = '#38bdf8'; // Sky Blue
+          else if (isOriginates) strokeColor = '#c084fc'; // Purple
+          else if (isMerges) strokeColor = '#fbbf24'; // Amber
 
           return {
             id: e.id,
             source: e.source,
             target: e.target,
             label: e.label,
-            labelStyle: { fill: '#9ca3af', fontSize: 9, fontWeight: 500 },
-            labelBgStyle: { fill: 'rgba(15, 18, 30, 0.85)', rx: 4, ry: 4 },
-            labelBgPadding: [4, 2],
+            animated: isThreatEdge || isDataFlow,
+            labelStyle: { fill: '#f1f5f9', fontSize: 10, fontWeight: 600 },
+            labelBgStyle: { fill: '#0f172a', fillOpacity: 0.92, rx: 4, ry: 4 },
+            labelBgPadding: [6, 3],
             style: {
-              stroke: isThreatEdge ? '#f87171' : '#64748b',
-              strokeWidth: isThreatEdge ? 2 : 1.5,
-              strokeDasharray: e.relation === 'merges' ? '4 3' : undefined,
+              stroke: strokeColor,
+              strokeWidth: isThreatEdge ? 2.5 : 2,
+              strokeDasharray: isMerges ? '5 4' : undefined,
             },
             markerEnd: {
               type: MarkerType.ArrowClosed,
-              color: isThreatEdge ? '#f87171' : '#64748b',
-              width: 14,
-              height: 14,
+              color: strokeColor,
+              width: 16,
+              height: 16,
             },
             data: {
               label: e.label,
